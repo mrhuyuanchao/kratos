@@ -7,6 +7,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/bytedance/sonic"
 )
 
 var patternMap = map[string]func(map[string]interface{}) string{
@@ -25,9 +27,13 @@ var patternMap = map[string]func(map[string]interface{}) string{
 }
 
 // newPatternRender new pattern render
-func newPatternRender(format string) Render {
+func newPatternRender(format string, options ...patternOption) Render {
 	p := &pattern{
 		bufPool: sync.Pool{New: func() interface{} { return &strings.Builder{} }},
+		isJson:  false,
+	}
+	for _, option := range options {
+		option(p)
 	}
 	b := make([]byte, 0, len(format))
 	for i := 0; i < len(format); i++ {
@@ -57,28 +63,52 @@ func newPatternRender(format string) Render {
 	return p
 }
 
+type patternOption func(p *pattern)
+
+func RenderWithJson(isJson bool) patternOption {
+	return func(p *pattern) {
+		p.isJson = isJson
+	}
+}
+
 type pattern struct {
 	funcs   []func(map[string]interface{}) string
 	bufPool sync.Pool
+	isJson  bool
 }
 
 // Render implements Formater
 func (p *pattern) Render(w io.Writer, d map[string]interface{}) error {
-	builder := p.bufPool.Get().(*strings.Builder)
-	defer func() {
-		builder.Reset()
-		p.bufPool.Put(builder)
-	}()
-	for _, f := range p.funcs {
-		builder.WriteString(f(d))
+	var data []byte
+	if p.isJson {
+		marshalData, marshalError := sonic.Marshal(d)
+		if marshalError != nil {
+			return marshalError
+		}
+		data = marshalData
+	} else {
+
+		builder := p.bufPool.Get().(*strings.Builder)
+		defer func() {
+			builder.Reset()
+			p.bufPool.Put(builder)
+		}()
+		for _, f := range p.funcs {
+			builder.WriteString(f(d))
+		}
+		data = []byte(builder.String())
 	}
 
-	_, err := w.Write([]byte(builder.String()))
+	_, err := w.Write(data)
 	return err
 }
 
 // Render implements Formater as string
 func (p *pattern) RenderString(d map[string]interface{}) string {
+	if p.isJson {
+		data, _ := sonic.MarshalString(d)
+		return data
+	}
 	builder := p.bufPool.Get().(*strings.Builder)
 	defer func() {
 		builder.Reset()
@@ -87,8 +117,8 @@ func (p *pattern) RenderString(d map[string]interface{}) string {
 	for _, f := range p.funcs {
 		builder.WriteString(f(d))
 	}
-
 	return builder.String()
+
 }
 
 func textFactory(text string) func(map[string]interface{}) string {
