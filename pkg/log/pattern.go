@@ -81,7 +81,16 @@ type pattern struct {
 func (p *pattern) Render(w io.Writer, d map[string]interface{}) error {
 	var data []byte
 	if p.isJson {
-		marshalData, marshalError := sonic.Marshal(d)
+		logMap := make(map[string]string)
+		for k, _ := range d {
+			for _, fn := range p.funcs {
+				if val := fn(d); val != "" {
+					logMap[k] = val
+					break
+				}
+			}
+		}
+		marshalData, marshalError := sonic.Marshal(logMap)
 		if marshalError != nil {
 			return marshalError
 		}
@@ -106,7 +115,16 @@ func (p *pattern) Render(w io.Writer, d map[string]interface{}) error {
 // Render implements Formater as string
 func (p *pattern) RenderString(d map[string]interface{}) string {
 	if p.isJson {
-		data, _ := sonic.MarshalString(d)
+		logMap := make(map[string]string)
+		for k, _ := range d {
+			for _, fn := range p.funcs {
+				if val := fn(d); val != "" {
+					logMap[k] = val
+					break
+				}
+			}
+		}
+		data, _ := sonic.MarshalString(logMap)
 		return data
 	}
 	builder := p.bufPool.Get().(*strings.Builder)
